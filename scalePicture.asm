@@ -1,6 +1,6 @@
 	.data	
-sourceFile:	.asciz	 "src2.bmp"
-outFile: 	.asciz	 "out2.bmp"
+sourceFile:	.asciz	 "stardew.bmp"
+outFile: 	.asciz	 "stardew-out.bmp"
 buffer:		.space 512
 	
 	.text
@@ -182,14 +182,14 @@ loadFileToMemory:
 # Returns
 # a0 - 4B signed integer 
 read4BytesLE:
-	lb	t0, (a0)
-	lb	t2, 1(a0)
+	lbu	t0, (a0)
+	lbu	t2, 1(a0)
 	slli	t2, t2, 8
 	add	t0, t0, t2
-	lb	t2, 2(a0)
+	lbu	t2, 2(a0)
 	slli	t2, t2, 16
 	add	t0, t0, t2
-	lb	t2, 3(a0)
+	lbu	t2, 3(a0)
 	slli	t2, t2, 24
 	add	t0, t0, t2
 	mv	a0, t0
