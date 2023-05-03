@@ -5,37 +5,47 @@ buffer:		.space 512
 	
 	.text
 	.global main
-main:
-	li	a7, 17
+main:	
+	li	a7, 17		# print cwd
 	la	a0, buffer
 	li	a1, 512
 	ecall
-	
 	li	a7, 4
-	ecall			# print cwd
+	ecall			
 
-	la 	a0, sourceFile
+	la 	a0, sourceFile 	# open source image in read-only mode
 	li 	a1, 0
 	li	a7, 1024
-	ecall			# open file in read-only mode
-	
+	ecall			
 	mv	s1, a0		# preserve file descriptor
+	
 	call	loadFileToMemory
+	mv	t3, a0
 	
-	lbu	t0, (a0)	# first byte (red) of first pixel (lower left)
-	lbu	t1, 1(a0)
-	lbu	t2, 2(a0)
-	
-	# Seek to the beginning of the file
-	mv	a0, s1
-	li	a1, 0
-	li	a2, 0
-	li	a7 62
-	ecall
-	
-	mv	a0, s1		# Close the files
+	mv	a0, s1		# close the source file
 	li	a7, 57
 	ecall
+	
+	lbu	t0, (t3)	# first byte (red) of first pixel (lower left)
+	lbu	t1, 1(t3)
+	lbu	t2, 2(t3)
+	
+	la	a0, outFile	# open output picture in read-only mode
+	li	a1, 0
+	li	a7, 1024
+	ecall
+	mv	s1, a0		# preserve file descriptor
+	
+	call	loadFileToMemory
+	mv	t3, a0
+	
+	mv	a0, s1		# close output file
+	li	a7, 57
+	ecall
+	
+	lbu	t0, (t3)	# first byte (red) of first pixel (lower left)
+	lbu	t1, 1(t3)
+	lbu	t2, 2(t3)
 	
 	
 	li	a7, 10
