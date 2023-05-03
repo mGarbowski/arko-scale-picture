@@ -199,6 +199,94 @@ read4BytesLE:
 scalePicture:
 	ret
 	
+
+# Calculate red, green and blue values of the given output pixel
+# Arguments
+# a0 - sourcePtr
+# a1 - outputRow
+# a2 - outputCol
+# a3 - windowHeight
+# a4 - windowWidth
+# a5 - sourceWidth
+# Returns
+# a0 - red
+# a1 - green
+# a2 - blue
+calculateOutputPixel:
+	# Preserve saved registers
+	addi	sp, sp, -44
+	sw	s0, 40(sp)
+	sw	s1, 36(sp)
+	sw	s2, 32(sp)
+	sw	s3, 28(sp)
+	sw	s4, 24(sp)
+	sw	s5, 20(sp)
+	sw	s6, 16(sp)
+	sw	s7, 12(sp)
+	sw	s8, 8(sp)
+	sw	s9, 4(sp)
+	sw	s10, (sp)
+
+	# Save arguments for multiple function calls
+	mv	s0, a0	
+	mv	s1, a1
+	mv	s2, a2
+	mv	s3, a3
+	mv	s4, a4
+	mv	s7, a5
+	
+	li	s8, 0	# red
+	li	s9, 0	# green
+	li	s10, 0	# blue
+	
+
+	addi	s6, s4, -1	# colOffset -> windowWidth-1...0
+windowColLoop:
+	addi	s5, s3, -1	# rowOffset -> windowHeight-1...0
+windowRowLoop
+	addi	s6, s6, -1
+	bnez	windowRowLoop
+	
+	# Pass arguments TODO: optimize
+	mv	a0, s0
+	mv	a1, s1
+	mv	a2, s2
+	mv	a3, s3
+	mv	a4, s4
+	mv	a5, s5
+	mv	a6, s6
+	mv	a7, s7
+	call	getSrcPixel
+	
+	# Add corresponding RGB values
+	add	s8, s8, a0
+	add	s9, s9, a1
+	add	s10, s10, a2
+
+	addi	s4, s4, -1
+	bnez	windowColLoop
+	
+	# Calculate mean for each of RGB colors and put in appropriate return registers
+	mul	t0, s3, s4	# pixels in window = width * height
+	div	a0, s8, t0
+	div	a1, s9, t0
+	div	a2, s10, t0
+	
+	# Restore saved registers
+	lw	s10, (sp)
+	lw	s9, 4(sp)
+	lw	s8, 8(sp)
+	lw	s7, 12(sp)
+	lw	s6, 16(sp)
+	lw	s5, 20(sp)
+	lw	s4, 24(sp)
+	lw	s3, 28(sp)
+	lw	s2, 32(sp)
+	lw	s1, 36(sp)
+	lw	s0, 40(sp)
+	addi	sp, sp, 44
+	ret
+	
 	
 # Get red, green and blue values of a pixel in source image corresponding to pixel and window offset in output image
 # Arguments
@@ -228,7 +316,6 @@ getSrcPixel:
 	mul	t2, t2, t0	# TODO use shifts
 	
 	add	t0, a0, t2	# pixelPtr = sourcePtr + pixelByteOffset
-	#addi	t0, t0, -1	# something miscalculated (?)
 	
 	lbu	a0, (t0)	# red
 	lbu	a1, 1(t0)	# green
