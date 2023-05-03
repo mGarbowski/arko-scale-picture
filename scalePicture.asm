@@ -29,14 +29,12 @@ main:
 	la	a0, buffer	# load sourceWidth
 	addi	a0, a0, 0x12
 	call 	read4BytesLE
-	addi	sp, sp, -4	# push sourceWidth
-	sw	a0, (sp)
+	mv	s4, a0		# sourceWidth
 	
 	la	a0, buffer
 	addi	a0, a0, 0x16
 	call 	read4BytesLE 	
-	addi	sp, sp, -4	# push sourceHeight
-	sw	a0, (sp)
+	mv	s5, a0		# sourceHeight
 	
 	call	loadFileToMemory
 	mv	s2, a0		# preserve sourcePtr
@@ -58,17 +56,15 @@ main:
 	li	a7, 63
 	ecall
 	
-	la	a0, buffer	# push outputWidth
+	la	a0, buffer	
 	addi	a0, a0, 0x12
 	call 	read4BytesLE
-	addi	sp, sp, -4	
-	sw	a0, (sp)
+	mv	s6, a0		# outputWidth
 	
-	la	a0, buffer	# push outputHeight
+	la	a0, buffer	
 	addi	a0, a0, 0x16
 	call 	read4BytesLE 	
-	addi	sp, sp, -4	
-	sw	a0, (sp)
+	mv	s7, a0		# outputHeight
 	
 	call	loadFileToMemory
 	mv	s3, a0		# preserve outputPtr
@@ -78,42 +74,50 @@ main:
 	ecall
 	
 	# Calculate output bitmap
+	mv	a0, s2
+	mv	a1, s3
+	mv	a2, s4
+	mv	a3, s5
+	mv	a4, s6
+	mv	a5, s7
+	call	scalePicture
 	
 	# Save result bitmap to output file
+	la	a0, buffer	# read bitmap offset, outFile header is already in the buffer
+	addi	a0, a0, 0x0A
+	call	read4BytesLE
+	mv	s8, a0
 	
-	# Debugging
-	lw	t0, (sp)
-	lw	t1, 4(sp)
-	lw	t2, 8(sp)
-	lw	t3, 12(sp)
+	la	a0, buffer	# read output bitmap size
+	addi	a0, a0, 0x22
+	call 	read4BytesLE
+	mv	s9, a0
 	
-	lbu	t0, (s2)	# first byte (red) of first pixel (lower left) source picture
-	lbu	t1, 1(s2)
-	lbu	t2, 2(s2)
-	
-	lbu	t0, (s3)	# first byte (red) of first pixel (lower left) output picture
-	lbu	t1, 1(s3)
-	lbu	t2, 2(s3)
-	
-	mv	a0, s2		# print some pixel info
-	li	a1, 2
-	li	a2, 1
-	li	a3, 4
-	li	a4, 4
-	li	a5, 0
-	li 	a6, 3
-	li	a7, 16
-	call 	getSrcPixel
-	
-	li	a7, 34
+	la	a0, outFile	# open output file in write-only mode
+	li	a1, 1
+	li	a7, 1024
 	ecall
-	mv	a0, a1
-	ecall
-	mv	a0, a2
+	mv	t1, a0		# preserve file descriptor
+	
+	la	a1, buffer	# write back the original header from buffer
+	mv	a2, s8
+	li	a7, 64
 	ecall
 	
+	mv	a0, t1		# write calculated bitmap from heap memory to file
+	mv	a1, s3
+	mv	a2, s9
+	li	a7, 64
+	ecall
+	
+	mv	a0, t1		# close output file
+	li	a7, 57
+	ecall
+	
+	
+	# Exit
 	li	a7, 10
-	ecall			# Exit
+	ecall			
 
 
 # Allocate space for the bitmap on the heap and load bitmap data
@@ -254,7 +258,6 @@ outColLoop:
 	sb	a1, 1(t0)
 	sb	a2, 2(t0)
 	
-
 	addi	s7, s7, 1		# close inner loop
 	blt	s7, s4, outColLoop
 
@@ -318,13 +321,10 @@ calculateOutputPixel:
 	li	s10, 0	# blue
 	
 
-	addi	s6, s4, -1	# colOffset -> windowWidth-1...0
+	li	s6, 0	# colOffset -> 0...windowWidth-1
 windowColLoop:
-	addi	s5, s3, -1	# rowOffset -> windowHeight-1...0
-windowRowLoop
-	addi	s6, s6, -1
-	bnez	windowRowLoop
-	
+	li	s5, 0	# rowOffset -> 0...windowHeight-1
+windowRowLoop:
 	# Pass arguments TODO: optimize
 	mv	a0, s0
 	mv	a1, s1
@@ -341,8 +341,11 @@ windowRowLoop
 	add	s9, s9, a1
 	add	s10, s10, a2
 
-	addi	s4, s4, -1
-	bnez	windowColLoop
+	addi	s5, s5, 1
+	blt	s5, s3, windowRowLoop	# close inner loop
+
+	addi	s6, s6, 1
+	blt	s6, s4, windowColLoop	# close outer loop
 	
 	# Calculate mean for each of RGB colors and put in appropriate return registers
 	mul	t0, s3, s4	# pixels in window = width * height
