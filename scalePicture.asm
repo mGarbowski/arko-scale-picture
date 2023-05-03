@@ -13,7 +13,7 @@ main:
 	li	a7, 4
 	ecall			
 
-	# Source file
+	# Load source file bitmap and metadata
 	la 	a0, sourceFile 	# open source image in read-only mode
 	li 	a1, 0
 	li	a7, 1024
@@ -46,7 +46,7 @@ main:
 	ecall
 	
 	
-	# Output file
+	# Load output file bitmap and metadata
 	la	a0, outFile	# open output picture in read-only mode
 	li	a1, 0
 	li	a7, 1024
@@ -76,6 +76,10 @@ main:
 	mv	a0, s1		# close output file
 	li	a7, 57
 	ecall
+	
+	# Calculate output bitmap
+	
+	# Save result bitmap to output file
 	
 	# Debugging
 	lw	t0, (sp)
@@ -189,6 +193,7 @@ read4BytesLE:
 
 
 # Scale down picture with integer proportions
+# Places calculated pixel values at outputPtr
 # Arguments
 # a0 - sourcePtr
 # a1 - outputPtr
@@ -197,6 +202,78 @@ read4BytesLE:
 # a4 - outputWidth
 # a5 - outputHeight
 scalePicture:
+	# Prologue
+	# Preserve stored registers and return address
+	addi	sp, sp, -44
+	sw	ra, 40(sp)
+	sw	s0, 36(sp)
+	sw	s1, 32(sp)
+	sw	s2, 28(sp)
+	sw	s3, 24(sp)
+	sw	s4, 20(sp)
+	sw	s5, 16(sp)
+	sw	s6, 12(sp)
+	sw	s7, 8(sp)
+	sw	s8, 4(sp)
+	sw	s9, (sp)
+	
+	# Preserve arguments
+	mv	s0, a0
+	mv	s1, a1
+	mv	s2, a2
+	mv	s3, a3
+	mv	s4, a4
+	mv	s5, a5
+	
+	# Body
+	div	s8, s2, s4	# windowWidth
+	div	s9, s3, s5	# windowHeight
+	
+	li	s6, 0		# outRow = 0...outHeight-1
+outRowLoop:
+	li	s7, 0		# outCol = 0...outWidth-1
+outColLoop:
+	# Pass arguments
+	mv	a0, s0
+	mv	a1, s6
+	mv	a2, s7
+	mv	a3, s9
+	mv	a4, s8
+	mv	a5, s2
+	call	calculateOutputPixel
+	
+	# Calculate address of output pixel
+	mul	t0, s6, s4	# pixelOffset = (outRow * outputWidth) + outCol
+	add	t0, t0, s7
+	li	t1, 3
+	mul	t0, t0, t1	# pixelBytesOffset = pixelOffset * 3 (24-bits per pixel) TODO optimize
+	add	t0, s1, t0	# pixelPtr = outputPtr + pixelBytesOffset
+	
+	# Store pixel RGB data
+	sb	a0, (t0)
+	sb	a1, 1(t0)
+	sb	a2, 2(t0)
+	
+
+	addi	s7, s7, 1		# close inner loop
+	blt	s7, s4, outColLoop
+
+	addi	s6, s6, 1
+	blt	s6, s3, outRowLoop	# close outer loop
+	
+	# Epilogue
+	lw	s9, (sp)
+	lw 	s8, 4(sp)
+	lw 	s7, 8(sp)
+	lw 	s6, 12(sp)
+	lw 	s5, 16(sp)
+	lw 	s4, 20(sp)
+	lw 	s3, 24(sp)
+	lw	s2, 28(sp)
+	lw	s1, 32(sp)
+	lw	s0, 36(sp)
+	lw	ra, 40(sp)
+	addi	sp, sp, 44
 	ret
 	
 
@@ -214,7 +291,8 @@ scalePicture:
 # a2 - blue
 calculateOutputPixel:
 	# Preserve saved registers
-	addi	sp, sp, -44
+	addi	sp, sp, -48
+	sw	ra, 44(sp)
 	sw	s0, 40(sp)
 	sw	s1, 36(sp)
 	sw	s2, 32(sp)
@@ -284,7 +362,8 @@ windowRowLoop
 	lw	s2, 32(sp)
 	lw	s1, 36(sp)
 	lw	s0, 40(sp)
-	addi	sp, sp, 44
+	lw	ra, 44(sp)
+	addi	sp, sp, 48
 	ret
 	
 	
