@@ -22,6 +22,10 @@ main:
 	mv	s1, a0		# preserve file descriptor
 	call	loadFileToMemory
 	
+	lbu	t0, (a0)	# first byte (red) of first pixel (lower left)
+	lbu	t1, 1(a0)
+	lbu	t2, 2(a0)
+	
 	# Seek to the beginning of the file
 	mv	a0, s1
 	li	a1, 0
@@ -29,10 +33,9 @@ main:
 	li	a7 62
 	ecall
 	
-	mv	a0, s1
-	call 	readBitmapSize
-	
-	
+	mv	a0, s1		# Close the files
+	li	a7, 57
+	ecall
 	
 	
 	li	a7, 10
@@ -45,8 +48,14 @@ main:
 # Returns
 # a0 - pointer to bitmap data
 loadFileToMemory:
-	addi	sp, sp, -4	# Prologue
-	sw	ra, (sp)
+	addi	sp, sp, -20	# Prologue
+	sw	ra, 16(sp)
+	sw	s1, 12(sp)
+	sw	s2, 8(sp)
+	sw	s3, 4(sp)
+	sw	s4, (sp)
+	
+	mv	a0, s1		# Preserve file descriptor
 	
 	la	a1, buffer	# Read beginning of the file into buffer
 	li	a2, 512
@@ -63,46 +72,33 @@ loadFileToMemory:
 	call 	read4BytesLE
 	mv	s3, a0
 	
+	mv	a0, s1		# Seek to the beginning of the file
+	addi	a1, s2, 1	# Offset where bitmap data begins
+	li	a2, 0
+	li	a7 62
+	ecall
 	
-	lw	ra, (sp)	# Epilogue
-	addi	sp, sp, 4
+	mv	a0, s3		# Allocate memory on heap for bitmap data
+	li	a7, 9
+	ecall
+	mv	s4, a0		# preserve bitmap pointer
+	
+	mv	a0, s1		# read bitmap data to heap memory
+	mv	a1, s4
+	mv	a2, s3
+	li	a7, 63
+	ecall
+	
+	mv	a0, s4		# Return bitmap pointer
+	
+	lw	s4, (sp)	# Epilogue
+	lw	s3 4(sp)
+	lw	s2, 8(sp)
+	lw	s1, 12(sp)
+	lw	ra, 16(sp)	
+	addi	sp, sp, 20
 	ret
 	
-
-# Read offset of the bitmap data from .bmp file header, loaded into buffer
-# Arguments
-# -
-# Returns
-# a0 - offset of bitmap data	
-readBitmapOffset:
-	addi	sp, sp, -4
-	sw	ra, (sp)
-	
-	la	a0, buffer
-	addi	a0, a0, 0x0A	# offset of the bitmap offset field
-	call 	read4BytesLE
-	
-	lw	ra, (sp)
-	addi	sp, sp, 4
-	ret
-	
-
-# Read size of the bitmap from .bmp file header, loaded into buffer
-# Arguments
-# -
-# Returns
-# a0 - size of the bitmap (4B)
-readBitmapSize:
-	addi	sp, sp, -4	# Save return address on the stack
-	sw	ra, (sp)
-	
-	la	a0, buffer
-	addi	a0, a0, 0x22	# Offset of bitmap size field in the header
-	call 	read4BytesLE
-	
-	lw	ra, (sp)
-	addi	sp, sp, 4	# Restore return address from the stack
-	ret
 	
 
 # Read 4 consecutive bytes from memory representing integer in little endian
