@@ -208,18 +208,19 @@ read4BytesLE:
 scalePicture:
 	# Prologue
 	# Preserve stored registers and return address
-	addi	sp, sp, -44
-	sw	ra, 40(sp)
-	sw	s0, 36(sp)
-	sw	s1, 32(sp)
-	sw	s2, 28(sp)
-	sw	s3, 24(sp)
-	sw	s4, 20(sp)
-	sw	s5, 16(sp)
-	sw	s6, 12(sp)
-	sw	s7, 8(sp)
-	sw	s8, 4(sp)
-	sw	s9, (sp)
+	addi	sp, sp, -48
+	sw	ra, 44(sp)
+	sw	s0, 40(sp)
+	sw	s1, 36(sp)
+	sw	s2, 32(sp)
+	sw	s3, 28(sp)
+	sw	s4, 24(sp)
+	sw	s5, 20(sp)
+	sw	s6, 16(sp)
+	sw	s7, 12(sp)
+	sw	s8, 8(sp)
+	sw	s9, 4(sp)
+	sw	s10, (sp)
 	
 	# Preserve arguments
 	mv	s0, a0
@@ -244,20 +245,24 @@ outColLoop:
 	mv	a3, s9
 	mv	a4, s8
 	mv	a5, s2
-	call	calculateOutputPixel
+	call	calculateOutputPixel	# output in a0, a1, a2
+	mv	s10, a0			# preserve red value in saved register
+	
+	mv	a0, s4
+	call	calculatePadding	# paddingBytesPerRow in a0
+	
 	
 	# Calculate address of output pixel
 	mul	t0, s6, s4	# pixelOffset = (outRow * outputWidth) + outCol
 	add	t0, t0, s7
 	li	t1, 3
 	mul	t0, t0, t1	# pixelBytesOffset = pixelOffset * 3 (24-bits per pixel) TODO optimize
-	li	t1, 3		# TODO calculate padding
-	mul	t2, s6, t1	# paddingOffset = outRow * paddingBytesPerRow
+	mul	t2, s6, a0	# paddingOffset = outRow * paddingBytesPerRow
 	add	t0, t0, t2	# pixelBytesOffset += paddingOffset
 	add	t0, s1, t0	# pixelPtr = outputPtr + pixelBytesOffset
 	
 	# Store pixel RGB data
-	sb	a0, (t0)
+	sb	s10, (t0)
 	sb	a1, 1(t0)
 	sb	a2, 2(t0)
 	
@@ -268,18 +273,19 @@ outColLoop:
 	blt	s6, s3, outRowLoop	# close outer loop
 	
 	# Epilogue
-	lw	s9, (sp)
-	lw 	s8, 4(sp)
-	lw 	s7, 8(sp)
-	lw 	s6, 12(sp)
-	lw 	s5, 16(sp)
-	lw 	s4, 20(sp)
-	lw 	s3, 24(sp)
-	lw	s2, 28(sp)
-	lw	s1, 32(sp)
-	lw	s0, 36(sp)
-	lw	ra, 40(sp)
-	addi	sp, sp, 44
+	lw	s10, (sp)
+	lw	s9, 4(sp)
+	lw 	s8, 8(sp)
+	lw 	s7, 12(sp)
+	lw 	s6, 16(sp)
+	lw 	s5, 20(sp)
+	lw 	s4, 24(sp)
+	lw 	s3, 28(sp)
+	lw	s2, 32(sp)
+	lw	s1, 36(sp)
+	lw	s0, 40(sp)
+	lw	ra, 44(sp)
+	addi	sp, sp, 48
 	ret
 	
 
@@ -388,6 +394,14 @@ windowRowLoop:
 # a1 - green
 # a2 - blue
 getSrcPixel:
+	addi	sp, sp, -8
+	sw	ra, 4(sp)
+	sw	s0, (sp)
+	
+	mv	s0, a0		# preserve sourcePtr
+	mv	a0, a7
+	call	calculatePadding	# paddingBytesInRow in a0
+
 	mul	t0, a1, a3	# srcRow = outRow * windowHeight + rowOffset
 	add	t0, t0, a5
 	
@@ -400,17 +414,36 @@ getSrcPixel:
 	li	t3, 3		# pixelByteOffset = pixelOffset * 3 (24-bit)
 	mul	t2, t2, t3	# TODO use shifts
 	
-	# TODO calculate padding
-	li	t3, 1		# padding pixels per row TODO
-	mul	t0, t0, t3	# paddingOffset = paddingBytesInRow * srcRow
+	mul	t0, t0, a0	# paddingOffset =  srcRow * paddingBytesInRow
 	add	t2, t2, t0	# pixelByteOffset += paddingOffset
 	 
-	
-	add	t0, a0, t2	# pixelPtr = sourcePtr + pixelByteOffset
+	add	t0, s0, t2	# pixelPtr = sourcePtr + pixelByteOffset
 	
 	lbu	a0, (t0)	# red
 	lbu	a1, 1(t0)	# green
 	lbu	a2, 2(t0)	# blue
 	
+	lw	s0, (sp)
+	lw	ra, 4(sp)
+	addi	sp, sp, 8
 	ret	
+	
+# Calculate number of padding bytes per row
+# paddedRowSize = floor((bitsPerPixel * imageWidth + 31) / 32) * 4
+# padding = paddedRowSize - pixelsPerRow * 3
+# Arguments
+# a0 - image width
+# Returns
+# a0 - number of padding bytes per row
+calculatePadding:
+	slli	t0, a0, 4
+	slli	t1, a0, 3
+	add	t0, t0, t1	# 24 * imageWidth = 16*imageWidth + 8*imageWidth
+	addi	t0, t0, 31
+	srli	t0, t0, 5	# floor((bitsPerPixel*imageWidth + 31) / 32)
+	slli	t0, t0, 2	# *= 4
+	slli	t1, a0, 1
+	add	t1, t1, a0	# 3*imageWidth = 2*imageWidth + imageWidth
+	sub	a0, t0, t1	# padding = paddedRowSize - 3*imageWidth
+	ret
 
