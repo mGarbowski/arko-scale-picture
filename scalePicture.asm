@@ -1,6 +1,6 @@
 	.data	
-sourceFile:	.asciz	 "stardew.bmp"
-outFile: 	.asciz	 "stardew-out.bmp"
+sourceFile:	.asciz	 "9x9.bmp"
+outFile: 	.asciz	 "3x3.bmp"
 buffer:		.space 512
 	
 	.text
@@ -251,6 +251,9 @@ outColLoop:
 	add	t0, t0, s7
 	li	t1, 3
 	mul	t0, t0, t1	# pixelBytesOffset = pixelOffset * 3 (24-bits per pixel) TODO optimize
+	li	t1, 3		# TODO calculate padding
+	mul	t2, s6, t1	# paddingOffset = outRow * paddingBytesPerRow
+	add	t0, t0, t2	# pixelBytesOffset += paddingOffset
 	add	t0, s1, t0	# pixelPtr = outputPtr + pixelBytesOffset
 	
 	# Store pixel RGB data
@@ -394,8 +397,14 @@ getSrcPixel:
 	mul	t2, a7, t0	# pixelOffset = srcWidth * srcRow + srcCol
 	add	t2, t2, t1
 	
-	li	t0, 3		# pixelByteOffset = pixelOffset * 3 (24-bit)
-	mul	t2, t2, t0	# TODO use shifts
+	li	t3, 3		# pixelByteOffset = pixelOffset * 3 (24-bit)
+	mul	t2, t2, t3	# TODO use shifts
+	
+	# TODO calculate padding
+	li	t3, 1		# padding pixels per row TODO
+	mul	t0, t0, t3	# paddingOffset = paddingBytesInRow * srcRow
+	add	t2, t2, t0	# pixelByteOffset += paddingOffset
+	 
 	
 	add	t0, a0, t2	# pixelPtr = sourcePtr + pixelByteOffset
 	
