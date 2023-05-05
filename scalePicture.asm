@@ -1,4 +1,6 @@
-	.data	
+# Fixed point calculations use format with 8 bits for fraction part
+	
+		.data	
 sourceFile:	.asciz	 "9x9.bmp"
 outFile: 	.asciz	 "3x3.bmp"
 buffer:		.space 512
@@ -294,8 +296,8 @@ outColLoop:
 # a0 - sourcePtr
 # a1 - outputRow
 # a2 - outputCol
-# a3 - windowHeight
-# a4 - windowWidth
+# a3 - windowHeight, fixedPoint
+# a4 - windowWidth, fixedPoint
 # a5 - sourceWidth
 # Returns
 # a0 - red
@@ -303,19 +305,19 @@ outColLoop:
 # a2 - blue
 calculateOutputPixel:
 	# Preserve saved registers
-	addi	sp, sp, -48
-	sw	ra, 44(sp)
-	sw	s0, 40(sp)
-	sw	s1, 36(sp)
-	sw	s2, 32(sp)
-	sw	s3, 28(sp)
-	sw	s4, 24(sp)
-	sw	s5, 20(sp)
-	sw	s6, 16(sp)
-	sw	s7, 12(sp)
-	sw	s8, 8(sp)
-	sw	s9, 4(sp)
-	sw	s10, (sp)
+	addi	sp, sp, -88
+	sw	ra, 84(sp)
+	sw	s0, 80(sp)
+	sw	s1, 76(sp)
+	sw	s2, 72(sp)
+	sw	s3, 68(sp)
+	sw	s4, 64(sp)
+	sw	s5, 60(sp)
+	sw	s6, 56(sp)
+	sw	s7, 52(sp)
+	sw	s8, 48(sp)
+	sw	s9, 44(sp)
+	sw	s10, 40(sp)
 
 	# Save arguments for multiple function calls
 	mv	s0, a0	
@@ -329,6 +331,66 @@ calculateOutputPixel:
 	li	s9, 0	# green
 	li	s10, 0	# blue
 	
+	# calculate weights and corner coordinates in source image and put on the stack
+
+	# downWeight, rowStart
+	# t0 = row * windowHeight
+	mul	t0, s1, s3
+	# t1 = rowStart = floor(row*wH)
+	srli	t1, t0, 8
+	slli	t1, t1, 8
+	sw	t1, 20(sp)	# push rowStart
+	# t1 = frac(row*wH)
+	slli	t1, t0, 24
+	srli	t1, t1, 24
+	# t2 = downWeight = 1 - frac(row*wH)
+	li	t2, 256		# t2 = 1.0 (fixed point)
+	sub	t2, t2, t1
+	sw	t2, 36(sp)	# push downWeight
+	
+	# upWeight, rowEnd
+	# t1 = (row+1) * wh
+	add	t1, t0, s3
+	# t2 = rowEnd = floor( (row+1) * wH )
+	srli	t2, t1, 8
+	slli	t2, t2 ,8
+	sw	t2, 16(sp)	# push rowEnd
+	# t1 = frac( (row+1)*wh )
+	slli	t1, t1, 24
+	srli	t1, t1, 24
+	# set upWeight to 1.0 if frac( (row+1) * wh) == 0
+	bnez	t1, skip1
+	li	t1, 256		# 1.0 fixed point
+skip1:	sw	t1, 32(sp)	# push upWeight
+
+	# leftWeight, colStart
+	# t0 = col * wW
+	mul	t0, s2, s4
+	# t1 = colStart = floor(col*wW)
+	srli	t1, t0, 8
+	slli	t1, t1, 8
+	sw	t1, 12(sp)	# push colStart
+	# t1 = frac(col*wW)
+	slli	t1, t0, 24
+	srli	t1, t1, 24 
+	li	t2, 256		# t2 = 1.0 (fixed point)
+	# t2 = leftWeight = 1.0 - frac(col*wW)
+	sw	t2, 28(sp)	# push leftWeight
+	
+	#rightWeight, colEnd
+	# t1 = (col+1) * wW
+	add	t1, t0, s4
+	# t2 = colEnd = floor( (col+1) * wW )
+	srli	t2, t1, 8
+	slli	t2, t2, 8
+	sw	t2, 8(sp)	# push colEnd
+	# t1 = frac( (col+1) * wW )
+	slli	t1, t1, 24
+	srli	t1, t1, 24
+	# set rightWeight to 1.0 if t1 was 0
+	bnez	t1, skip2
+	li	t1, 256		# 1.0 fixed point
+skip2:	sw	t1, 24(sp)	# push rightWeight
 
 	li	s6, 0	# colOffset -> 0...windowWidth-1
 windowColLoop:
@@ -363,19 +425,19 @@ windowRowLoop:
 	div	a2, s10, t0
 	
 	# Restore saved registers
-	lw	s10, (sp)
-	lw	s9, 4(sp)
-	lw	s8, 8(sp)
-	lw	s7, 12(sp)
-	lw	s6, 16(sp)
-	lw	s5, 20(sp)
-	lw	s4, 24(sp)
-	lw	s3, 28(sp)
-	lw	s2, 32(sp)
-	lw	s1, 36(sp)
-	lw	s0, 40(sp)
-	lw	ra, 44(sp)
-	addi	sp, sp, 48
+	lw	s10, 40(sp)
+	lw	s9, 44(sp)
+	lw	s8, 48(sp)
+	lw	s7, 52(sp)
+	lw	s6, 56(sp)
+	lw	s5, 60(sp)
+	lw	s4, 64(sp)
+	lw	s3, 68(sp)
+	lw	s2, 72(sp)
+	lw	s1, 76(sp)
+	lw	s0, 80(sp)
+	lw	ra, 84(sp)
+	addi	sp, sp, 88
 	ret
 	
 	
