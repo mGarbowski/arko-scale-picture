@@ -610,20 +610,23 @@ rightEdgeLoopEnd:
 	#
 	# middle
 	# TODO: optimize
-	li	s1, 1	# colOffset
-	li	s2, 1	# rowOffset
-	lw	s3, 4(sp)	# innerWidth
-	lw	s4, (sp)	# innerHeight
-	lw	s5, 12(sp)	# colStart
-	lw	s6, 20(sp)	# rowStart
+	lw	t0, 12(sp)	# colStart
+	addi	s1, t0, 1	# col
+	lw	t1, 4(sp)	# innerWidth
+	add	s3, t0, t1	# colEnd = colStart + innerWidth
 	
-	beqz	s3, midRowLoopEnd	# skip if either equal to 0 - no middle part
-	beqz	s4, midRowLoopEnd
+	lw	t0, 20(sp)	# rowStart
+	addi	s2, t0, 1	# row
+	lw	t1, (sp)	# innerHeight
+	add	s4, t0, t1	# rowEnd = rowStart + innerHeight
+	
+	bgt	s1, s3  midRowLoopEnd	# skip if either equal to 0 - no middle part
+	bgt	s2, s4, midRowLoopEnd
 midRowLoop:
 midColLoop:
 	mv	a0, s0
-	add	a1, s6, s2	# rowStart + rowOffset
-	add	a2, s5, s1	# colStart + colOffset
+	mv	a1, s2
+	mv	a2, s1
 	mv	a3, s7
 	call	getSourcePixel	# results in a0, a1, a2
 	
@@ -635,11 +638,11 @@ midColLoop:
 	add	s10, s10, a2
 	
 	addi	s1, s1, 1
-	ble	s1, s3, midColLoop	# colOffset = 1..innerWidth
+	ble	s1, s3, midColLoop	# col = colStart+1..colEnd
 midColLoopEnd:
 	li	s1, 1
 	addi	s2, s2, 1
-	ble	s2, s4, midRowLoop
+	ble	s2, s4, midRowLoop	# row = rowStart+1..rowEnd
 midRowLoopEnd:
 	
 	# Calculate weighted average of RGB values
