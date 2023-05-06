@@ -1,8 +1,8 @@
 # Fixed point calculations use format with 8 bits for fraction part
 	
 		.data	
-sourceFile:	.asciz	 "9x9.bmp"
-outFile: 	.asciz	 "3x3.bmp"
+sourceFile:	.asciz	 "czumpi.bmp"
+outFile: 	.asciz	 "czumpi-out.bmp"
 buffer:		.space 512
 	
 	.text
@@ -439,6 +439,7 @@ skip2:	sw	t1, 24(sp)	# push rightWeight
 	mul	t1, a1, t0
 	add	s9, s9, t1
 	mul	t1, a2, t0
+	add	s10, s10, t1
 	
 	# lower right corner
 	mv	a0, s0
@@ -452,7 +453,7 @@ skip2:	sw	t1, 24(sp)	# push rightWeight
 	srli	t0, t0, 8	# adjust fixed-point multiplixation
 
 	mul	t1, t0, a0	# add weighted RGB values
-	add	s8, s9, t1
+	add	s8, s8, t1
 	mul	t1, t0, a1
 	add	s9, s9, t1
 	mul	t1, t0, a2
@@ -492,7 +493,7 @@ skip2:	sw	t1, 24(sp)	# push rightWeight
 	mul	t1, t0, a1
 	add	s9, s9, t1
 	mul	t1, t0, a2
-	add	s10, s10, a2
+	add	s10, s10, t1
 	
 	#
 	# Edges
@@ -586,7 +587,7 @@ rightEdgeLoop:
 	mul	t0, s3, a1
 	add	s9, s9, t0
 	mul	t0, s3, a2
-	add	s9, s9, t0
+	add	s10, s10, t0
 
 	addi	s2, s2, 1
 	ble	s2, s6, rightEdgeLoop
@@ -614,7 +615,7 @@ midColLoop:
 	
 	slli	a0, a0, 8	# in fixed-point format
 	slli	a1, a1, 8
-	slli	a1, a1, 8
+	slli	a2, a2, 8
 	add	s8, s8, a0	# add RGB values with weight 1.0
 	add	s9, s9, a1
 	add	s10, s10, a2
