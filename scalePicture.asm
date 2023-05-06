@@ -198,7 +198,7 @@ read4BytesLE:
 	ret
 
 
-# Scale down picture with integer proportions
+# Scale down picture 
 # Places calculated pixel values at outputPtr
 # Arguments
 # a0 - sourcePtr
@@ -233,8 +233,10 @@ scalePicture:
 	mv	s5, a5
 	
 	# Body
-	div	s8, s2, s4	# windowWidth
-	div	s9, s3, s5	# windowHeight
+	slli	s8, s2, 8	# windowWidth (fiexd-point)
+	div	s8, s8, s4
+	slli	s9, s3, 8	# windowHeight (fixed-point)
+	div	s9, s9, s5
 	
 	li	s6, 0		# outRow = 0...outHeight-1
 outRowLoop:
@@ -272,7 +274,7 @@ outColLoop:
 	blt	s7, s4, outColLoop
 
 	addi	s6, s6, 1
-	blt	s6, s3, outRowLoop	# close outer loop
+	blt	s6, s5, outRowLoop	# close outer loop
 	
 	# Epilogue
 	lw	s10, (sp)
@@ -305,19 +307,20 @@ outColLoop:
 # a2 - blue
 calculateOutputPixel:
 	# Preserve saved registers
-	addi	sp, sp, -88
-	sw	ra, 84(sp)
-	sw	s0, 80(sp)
-	sw	s1, 76(sp)
-	sw	s2, 72(sp)
-	sw	s3, 68(sp)
-	sw	s4, 64(sp)
-	sw	s5, 60(sp)
-	sw	s6, 56(sp)
-	sw	s7, 52(sp)
-	sw	s8, 48(sp)
-	sw	s9, 44(sp)
-	sw	s10, 40(sp)
+	addi	sp, sp, -92
+	sw	ra, 88(sp)
+	sw	s0, 84(sp)
+	sw	s1, 80(sp)
+	sw	s2, 76(sp)
+	sw	s3, 72(sp)
+	sw	s4, 68(sp)
+	sw	s5, 64(sp)
+	sw	s6, 60(sp)
+	sw	s7, 56(sp)
+	sw	s8, 52(sp)
+	sw	s9, 48(sp)
+	sw	s10, 44(sp)
+	sw	s11, 40(sp)
 
 	# Save arguments for multiple function calls
 	mv	s0, a0	
@@ -327,18 +330,19 @@ calculateOutputPixel:
 	mv	s4, a4
 	mv	s7, a5
 	
-	li	s8, 0	# red
-	li	s9, 0	# green
-	li	s10, 0	# blue
+	# Calculate sum of weights - equal to the window surface area
+	mul	s11, a3, a4	# totalWeight = windowWidth * windowHeight
+	srli	s11, s11, 8	# adjust fixed-point multiplication
 	
+	#
 	# calculate weights and corner coordinates in source image and put on the stack
+	#
 
 	# downWeight, rowStart
 	# t0 = row * windowHeight
 	mul	t0, s1, s3
-	# t1 = rowStart = floor(row*wH)
+	# t1 = rowStart = floor(row*wH) (integer)
 	srli	t1, t0, 8
-	slli	t1, t1, 8
 	sw	t1, 20(sp)	# push rowStart
 	# t1 = frac(row*wH)
 	slli	t1, t0, 24
@@ -351,9 +355,8 @@ calculateOutputPixel:
 	# upWeight, rowEnd
 	# t1 = (row+1) * wh
 	add	t1, t0, s3
-	# t2 = rowEnd = floor( (row+1) * wH )
+	# t2 = rowEnd = floor( (row+1) * wH ) (integer)
 	srli	t2, t1, 8
-	slli	t2, t2 ,8
 	sw	t2, 16(sp)	# push rowEnd
 	# t1 = frac( (row+1)*wh )
 	slli	t1, t1, 24
@@ -366,9 +369,8 @@ skip1:	sw	t1, 32(sp)	# push upWeight
 	# leftWeight, colStart
 	# t0 = col * wW
 	mul	t0, s2, s4
-	# t1 = colStart = floor(col*wW)
+	# t1 = colStart = floor(col*wW) (integer)
 	srli	t1, t0, 8
-	slli	t1, t1, 8
 	sw	t1, 12(sp)	# push colStart
 	# t1 = frac(col*wW)
 	slli	t1, t0, 24
@@ -380,9 +382,8 @@ skip1:	sw	t1, 32(sp)	# push upWeight
 	#rightWeight, colEnd
 	# t1 = (col+1) * wW
 	add	t1, t0, s4
-	# t2 = colEnd = floor( (col+1) * wW )
+	# t2 = colEnd = floor( (col+1) * wW ) (integer)
 	srli	t2, t1, 8
-	slli	t2, t2, 8
 	sw	t2, 8(sp)	# push colEnd
 	# t1 = frac( (col+1) * wW )
 	slli	t1, t1, 24
@@ -392,52 +393,260 @@ skip1:	sw	t1, 32(sp)	# push upWeight
 	li	t1, 256		# 1.0 fixed point
 skip2:	sw	t1, 24(sp)	# push rightWeight
 
-	li	s6, 0	# colOffset -> 0...windowWidth-1
-windowColLoop:
-	li	s5, 0	# rowOffset -> 0...windowHeight-1
-windowRowLoop:
-	# Pass arguments TODO: optimize
-	mv	a0, s0
-	mv	a1, s1
-	mv	a2, s2
-	mv	a3, s3
-	mv	a4, s4
-	mv	a5, s5
-	mv	a6, s6
-	mv	a7, s7
-	call	getSrcPixel
+	# innerWidth = colEnd - colStart + 1 - 2
+	lw	t0, 8(sp)	# colEnd
+	lw	t1, 12(sp)	# colStart
+	sub	t0, t0, t1
+	addi	t0, t0, -1
+	sw	t0, 4(sp)	# push innerWidth
 	
-	# Add corresponding RGB values
-	add	s8, s8, a0
+	# innerHeight = rowEnd - rowStart + 1 - 2
+	lw	t0, 16(sp)	# rowEnd
+	lw	t1, 20(sp)	# rowStart
+	sub	t0, t0, t1
+	addi	t0, t0, -1
+	sw	t0, (sp)	# push innerHeight
+
+	# Read RGB values from source image, storing total weighted sum of each color
+	# reading in order: 
+	# corners
+	# edges (if appropriate innerHeight or innerWidth > 0)
+	# middle (if innerHeight and innerWidth > 0)
+	
+	li	s8, 0	# red
+	li	s9, 0	# green
+	li	s10, 0	# blue
+	
+	#
+	# Corners
+	#
+	
+	# lower left corner
+	mv	a0, s0
+	lw	a1, 20(sp)
+	lw	a2, 12(sp)
+	mv	a3, s7
+	call 	getSourcePixel	# results in a0, a1, a2
+	# t0 = weight = downWeight * leftWeight
+	lw	t0, 28(sp)
+	lw	t1, 36(sp)
+	mul	t0, t0, t1
+	srli	t0, t0, 8	# adjust fixe point multiplication
+	mul	t1, a0, t0	# integer * fixe point - no need to adjust
+	add	s8, s8, t1	# add weighted r, g, b
+	mul	t1, a1, t0
+	add	s9, s9, t1
+	mul	t1, a2, t0
+	
+	# lower right corner
+	mv	a0, s0
+	lw	a1, 20(sp)	# rowStart
+	lw	a2, 8(sp)	# colEnd
+	mv	a3, s7
+	call 	getSourcePixel	# results in a0, a1, a2
+	lw	t0, 36(sp)	# downWeight
+	lw	t1, 24(sp)	# rightWeight
+	mul	t0, t0, t1	# weight = downWeight * rightWeight
+	srli	t0, t0, 8	# adjust fixed-point multiplixation
+
+	mul	t1, t0, a0	# add weighted RGB values
+	add	s8, s9, t1
+	mul	t1, t0, a1
+	add	s9, s9, t1
+	mul	t1, t0, a2
+	add	s10, s10, t1
+	
+	# upper left corner
+	mv	a0, s0
+	lw	a1, 16(sp)	# rowEnd
+	lw	a2, 12(sp)	# colStart
+	mv	a3, s7
+	call	getSourcePixel	# results in a0, a1, a2
+	lw	t0, 32(sp)	# upWeight
+	lw	t1, 28(sp)	# leftWeight
+	mul	t0, t0, t1	# weight = upWeight * leftWeight
+	srli	t0, t0, 8	# adjust fixed-point multiplication
+	
+	mul	t1, t0, a0	# add weighted RGB values
+	add	s8, s8, t1
+	mul	t1, t0, a1
+	add	s9, s9, t1
+	mul	t1, t0, a2
+	add	s10, s10, t1
+	
+	# upper right corner
+	mv	a0, s0
+	lw	a1, 16(sp)	# rowEnd
+	lw	a2, 8(sp)	# colEnd
+	mv	a3, s7
+	call	getSourcePixel	# results in a0, a1, a2
+	lw	t0, 32(sp)	# upWeight
+	lw	t1, 24(sp)	# rightWeight
+	mul	t0, t0, t1
+	srli	t0, t0, 8
+	
+	mul	t1, t0, a0	# add weighted RB values
+	add	s8, s8, t1
+	mul	t1, t0, a1
+	add	s9, s9, t1
+	mul	t1, t0, a2
+	add	s10, s10, a2
+	
+	#
+	# Edges
+	#
+	
+	# lower edge 
+	lw	s6, 4(sp)	# innerWidth
+	li	s2, 1		# colOffset
+	beqz	s6, lowerEdgeLoopEnd	# skip if no lower edge
+lowerEdgeLoop:
+	mv	a0, s0
+	lw	a1, 20(sp)	# row start
+	lw	a2, 12(sp)	# col start
+	add	a2, a2, s2	# col = colStart + colOffset
+	mv	a3, s7
+	call	getSourcePixel
+	
+	lw	t0, 36(sp)	# weight = downWeight
+	mul	t1, a0, t0
+	add	s8, s8, t1
+	mul	t1, a1, t0
+	add	s9, s9, t1
+	mul	t1, a2, t0
+	add	s10, s10, t1
+	
+	addi	s2, s2, 1
+	ble	s2, s6, lowerEdgeLoop		# repeat for colOffset = 1..innerWidth
+lowerEdgeLoopEnd:
+	
+	# upper edge
+	li	s2, 1	# colOffset
+	lw	s3, 32(sp)	# upWeight
+	beqz	s6, upperEdgeLoopEnd	# skip if no upper edge
+upperEdgeLoop:
+	mv	a0, s0
+	lw	a1, 16(sp)	# rowEnd
+	lw	a2, 12(sp)	# colStart + colOffset
+	add	a2, a2, s2
+	mv	a3, s7
+	call	getSourcePixel	# results in a0, a1, a2
+	
+	mul	t0, s3, a0	# add weighted RGB values
+	add	s8, s8, t0
+	mul	t0, s3, a1
+	add	s9, s9, t0
+	mul	t0, s3, a2
+	add	s10, s10, t0
+	
+	addi	s2, s2, 1
+	ble	s2, s6, upperEdgeLoop	# colOffset = 1..innerWidth
+upperEdgeLoopEnd:
+	
+	# left edge
+	li	s2, 1		# rowOffset
+	lw	s3, 28(sp)	# leftWeight
+	lw	s6, (sp)	# innerHeight
+	beqz	s6, leftEdgeLoopEnd	# skip if no left edge
+leftEdgeLoop:
+	mv	a0, s0
+	lw	a1, 20(sp)	# rowStart + rowOffset
+	add	a1, a1, s2
+	lw	a2, 12(sp)	# colStart
+	mv	a3, s7
+	call	getSourcePixel	# results in a0, a1, a2
+	
+	mul	t0, s3, a0	# add weighted RGB values
+	add	s8, s8, t0
+	mul	t0, s3, a1
+	add	s9, s9, t0
+	mul	t0, s3, a2
+	add	s10, s10, t0
+	
+	addi	s2, s2, 1
+	ble	s2, s6, leftEdgeLoop	# rowOffset = 1..innerHeight
+leftEdgeLoopEnd:
+
+	# right edge
+	li	s2, 1		# rowOffset
+	lw	s3, 24(sp)	# rightWeight
+	beqz	s6, rightEdgeLoopEnd	# skip if no right edge
+rightEdgeLoop:
+	mv	a0, s0
+	lw	a1, 20(sp)	# rowStart + rowOffset
+	add	a1, a1, s2
+	lw	a2, 8(sp)	# colEnd
+	mv	a3, s7
+	call	getSourcePixel	# results in a0, a1, a2
+	
+	mul	t0, s3, a0	# add weighted RGB values
+	add	s8, s8, t0
+	mul	t0, s3, a1
+	add	s9, s9, t0
+	mul	t0, s3, a2
+	add	s9, s9, t0
+
+	addi	s2, s2, 1
+	ble	s2, s6, rightEdgeLoop
+rightEdgeLoopEnd:
+	
+	#
+	# middle
+	# TODO: optimize
+	li	s1, 1	# colOffset
+	li	s2, 1	# rowOffset
+	lw	s3, 4(sp)	# innerWidth
+	lw	s4, (sp)	# innerHeight
+	lw	s5, 12(sp)	# colStart
+	lw	s6, 20(sp)	# rowStart
+	
+	beqz	s3, midRowLoopEnd	# skip if either equal to 0 - no middle part
+	beqz	s4, midRowLoopEnd
+midRowLoop:
+midColLoop:
+	mv	a0, s0
+	add	a1, s6, s2	# rowStart + rowOffset
+	add	a2, s5, s1	# colStart + colOffset
+	mv	a3, s7
+	call	getSourcePixel	# results in a0, a1, a2
+	
+	slli	a0, a0, 8	# in fixed-point format
+	slli	a1, a1, 8
+	slli	a1, a1, 8
+	add	s8, s8, a0	# add RGB values with weight 1.0
 	add	s9, s9, a1
 	add	s10, s10, a2
-
-	addi	s5, s5, 1
-	blt	s5, s3, windowRowLoop	# close inner loop
-
-	addi	s6, s6, 1
-	blt	s6, s4, windowColLoop	# close outer loop
 	
-	# Calculate mean for each of RGB colors and put in appropriate return registers
-	mul	t0, s3, s4	# pixels in window = width * height
-	div	a0, s8, t0
-	div	a1, s9, t0
-	div	a2, s10, t0
+	addi	s1, s1, 1
+	ble	s1, s3, midColLoop	# colOffset = 1..innerWidth
+midColLoopEnd:
+	li	s1, 1
+	addi	s2, s2, 1
+	ble	s2, s4, midRowLoop
+midRowLoopEnd:
+	
+	# Calculate weighted average of RGB values
+	# sum of weights is equal to the window surface area windowWidth * windowHeight
+	# result of fixed-point by fixed-point division is equal to floor of the result in natural binary (integer), no need to adjust by shifting
+	div	a0, s8, s11
+	div	a1, s9, s11
+	div	a2, s10, s11
 	
 	# Restore saved registers
-	lw	s10, 40(sp)
-	lw	s9, 44(sp)
-	lw	s8, 48(sp)
-	lw	s7, 52(sp)
-	lw	s6, 56(sp)
-	lw	s5, 60(sp)
-	lw	s4, 64(sp)
-	lw	s3, 68(sp)
-	lw	s2, 72(sp)
-	lw	s1, 76(sp)
-	lw	s0, 80(sp)
-	lw	ra, 84(sp)
-	addi	sp, sp, 88
+	lw	s11, 40(sp)
+	lw	s10, 44(sp)
+	lw	s9, 48(sp)
+	lw	s8, 52(sp)
+	lw	s7, 56(sp)
+	lw	s6, 60(sp)
+	lw	s5, 64(sp)
+	lw	s4, 68(sp)
+	lw	s3, 72(sp)
+	lw	s2, 76(sp)
+	lw	s1, 80(sp)
+	lw	s0, 84(sp)
+	lw	ra, 88(sp)
+	addi	sp, sp, 92
 	ret
 	
 	
@@ -509,3 +718,47 @@ calculatePadding:
 	sub	a0, t0, t1	# padding = paddedRowSize - 3*imageWidth
 	ret
 
+# Return RGB values of given source pixel
+# translate given coordinates to account for padding
+# Arguments
+# a0 - sourcePointer
+# a1 - soure row (integer)
+# a2 - source column (integer)
+# a3 - image width (integer) - to calculate padding
+# Returns
+# a0 - red (integer)
+# a1 - green (integer)
+# a2 - blue (integer)
+getSourcePixel:
+# Prologue
+	addi	sp, sp, -8
+	sw	ra, 4(sp)
+	sw	s0, (sp)
+	
+	mv	s0, a0		# preserve sourcePtr
+	
+	mv	a0, a3
+	call	calculatePadding	# a0 = paddingBytesPerRow
+	
+	# pixelOffset = srcRow * imageWidth + srcCol
+	mul	t0, a1, a3
+	add	t0, t0, a2
+	#paddingOffset = paddingBytesPerRow * srcRow
+	mul	t1, a0, a1
+	# bytesOffset = (pixelOffset * 3) + paddingOffset
+	slli	t2, t0, 1	# 2*pixelOffset
+	add	t2, t2, t0	# 2*pixelOffset + pixelOffset
+	add	t2, t2, t1	# 3*pixelOffset + paddingOffset
+	# pixelPointer = sourcePtr + bytesOffset
+	add	t0, s0, t2
+	
+	# load RGB
+	lbu	a0, (t0)
+	lbu	a1, 1(t0)
+	lbu	a2, 2(t0)
+	
+	# Epilogue
+	lw	s0, (sp)
+	lw	ra, 4(sp)
+	addi	sp, sp, 8
+	ret
