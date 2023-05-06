@@ -1,4 +1,13 @@
-# Fixed point calculations use format with 8 bits for fraction part
+# Downscale .bmp image
+# Requires hardcoded sourceFile and outFile to exist and be valid .bmp
+# Source image is downscaled to output image's size
+# 
+# Supports .bmp files with padding
+# Supports non-integer downscaling ratio
+# Fixed point calculations use format with 24-bit integer part and 8-bit fraction part
+#
+# Author: Mikołaj Garbowski 2023
+#
 	
 		.data	
 sourceFile:	.asciz	 "czumpi.bmp"
@@ -8,14 +17,9 @@ buffer:		.space 512
 	.text
 	.global main
 main:	
-	li	a7, 17		# print cwd
-	la	a0, buffer
-	li	a1, 512
-	ecall
-	li	a7, 4
-	ecall			
-
+	#
 	# Load source file bitmap and metadata
+	#
 	la 	a0, sourceFile 	# open source image in read-only mode
 	li 	a1, 0
 	li	a7, 1024
@@ -45,8 +49,9 @@ main:
 	li	a7, 57
 	ecall
 	
-	
+	#
 	# Load output file bitmap and metadata
+	#
 	la	a0, outFile	# open output picture in read-only mode
 	li	a1, 0
 	li	a7, 1024
@@ -75,7 +80,9 @@ main:
 	li	a7, 57
 	ecall
 	
+	#
 	# Calculate output bitmap
+	#
 	mv	a0, s2
 	mv	a1, s3
 	mv	a2, s4
@@ -84,7 +91,9 @@ main:
 	mv	a5, s7
 	call	scalePicture
 	
+	#
 	# Save result bitmap to output file
+	#
 	la	a0, buffer	# read bitmap offset, outFile header is already in the buffer
 	addi	a0, a0, 0x0A
 	call	read4BytesLE
@@ -123,7 +132,7 @@ main:
 
 
 # Allocate space for the bitmap on the heap and load bitmap data
-# .bmp header already loaded into buffer
+# Requires .bmp header to be loaded into buffer
 # Arguments
 # a0 - file descriptor of an open .bmp file
 # Returns
@@ -179,10 +188,11 @@ loadFileToMemory:
 	
 
 # Read 4 consecutive bytes from memory representing integer in little endian
+# Utility for reading non-aligned data
 # Arguments
 # a0 - address of the first byte
 # Returns
-# a0 - 4B signed integer 
+# a0 - 4B integer 
 read4BytesLE:
 	lbu	t0, (a0)
 	lbu	t2, 1(a0)
@@ -198,8 +208,8 @@ read4BytesLE:
 	ret
 
 
-# Scale down picture 
-# Places calculated pixel values at outputPtr
+# Downscale picture 
+# Places calculated pixel values in ouput pixel matrix (outputPtr) 
 # Arguments
 # a0 - sourcePtr
 # a1 - outputPtr
@@ -259,8 +269,8 @@ outColLoop:
 	# Calculate address of output pixel
 	mul	t0, s6, s4	# pixelOffset = (outRow * outputWidth) + outCol
 	add	t0, t0, s7
-	li	t1, 3
-	mul	t0, t0, t1	# pixelBytesOffset = pixelOffset * 3 (24-bits per pixel) TODO optimize
+	slli	t1, t0, 1	# *3 by shifting and adding
+	add	t0, t0, t1	# pixelBytesOffset = pixelOffset * 3 (24-bits per pixel)
 	mul	t2, s6, a0	# paddingOffset = outRow * paddingBytesPerRow
 	add	t0, t0, t2	# pixelBytesOffset += paddingOffset
 	add	t0, s1, t0	# pixelPtr = outputPtr + pixelBytesOffset
@@ -293,13 +303,17 @@ outColLoop:
 	ret
 	
 
-# Calculate red, green and blue values of the given output pixel
+# Calculate RGB values of the given output pixel
+# RGB values are weighted average of pixels in source image
+# weight of a source pixel is proportional to its area contained in the window 
+# (1.0 in the midle and <= 1.0 in the corners and edges)
+#
 # Arguments
 # a0 - sourcePtr
 # a1 - outputRow
 # a2 - outputCol
-# a3 - windowHeight, fixedPoint
-# a4 - windowWidth, fixedPoint
+# a3 - windowHeight (fixed-point)
+# a4 - windowWidth (fixed-point)
 # a5 - sourceWidth
 # Returns
 # a0 - red
@@ -307,7 +321,7 @@ outColLoop:
 # a2 - blue
 calculateOutputPixel:
 	# Preserve saved registers
-	addi	sp, sp, -92
+	addi	sp, sp, -92	# allocate additional space for local variables
 	sw	ra, 88(sp)
 	sw	s0, 84(sp)
 	sw	s1, 80(sp)
@@ -378,6 +392,7 @@ skip1:	sw	t1, 32(sp)	# push upWeight
 	srli	t1, t1, 24 
 	li	t2, 256		# t2 = 1.0 (fixed point)
 	# t2 = leftWeight = 1.0 - frac(col*wW)
+	sub	t2, t2, t1
 	sw	t2, 28(sp)	# push leftWeight
 	
 	#rightWeight, colEnd
@@ -410,14 +425,12 @@ skip2:	sw	t1, 24(sp)	# push rightWeight
 	sw	t0, (sp)	# push innerHeight
 
 	# Read RGB values from source image, storing total weighted sum of each color
-	# reading in order: 
-	# corners
-	# edges (if appropriate innerHeight or innerWidth > 0)
-	# middle (if innerHeight and innerWidth > 0)
+	# Source image pixels are divided into 9 categories with separate weights
+	# 4 corners, horizontal edges (if innerWidth > 0), vertical edges (if innerHeight > 0), middle (if both innerHeight and innerWidth > 0)
 	
-	li	s8, 0	# red
-	li	s9, 0	# green
-	li	s10, 0	# blue
+	li	s8, 0	# total red value (fixed-point)
+	li	s9, 0	# total green value (fixed-point)
+	li	s10, 0	# total blue value (fixed-point)
 	
 	#
 	# Corners
@@ -433,9 +446,10 @@ skip2:	sw	t1, 24(sp)	# push rightWeight
 	lw	t0, 28(sp)
 	lw	t1, 36(sp)
 	mul	t0, t0, t1
-	srli	t0, t0, 8	# adjust fixe point multiplication
-	mul	t1, a0, t0	# integer * fixe point - no need to adjust
-	add	s8, s8, t1	# add weighted r, g, b
+	srli	t0, t0, 8	# adjust fixed-point multiplication
+	mul	t1, a0, t0	# integer * fixed-point - no need to adjust
+	
+	add	s8, s8, t1	# add weighted RGB values
 	mul	t1, a1, t0
 	add	s9, s9, t1
 	mul	t1, a2, t0
@@ -524,7 +538,7 @@ lowerEdgeLoop:
 lowerEdgeLoopEnd:
 	
 	# upper edge
-	li	s2, 1	# colOffset
+	li	s2, 1		# colOffset
 	lw	s3, 32(sp)	# upWeight
 	beqz	s6, upperEdgeLoopEnd	# skip if no upper edge
 upperEdgeLoop:
@@ -630,12 +644,12 @@ midRowLoopEnd:
 	
 	# Calculate weighted average of RGB values
 	# sum of weights is equal to the window surface area windowWidth * windowHeight
-	# result of fixed-point by fixed-point division is equal to floor of the result in natural binary (integer), no need to adjust by shifting
+	# result of fixed-point by fixed-point division is equal to floor of the result (integer), no need to adjust by shifting
 	div	a0, s8, s11
 	div	a1, s9, s11
 	div	a2, s10, s11
 	
-	# Restore saved registers
+	# Epilogue
 	lw	s11, 40(sp)
 	lw	s10, 44(sp)
 	lw	s9, 48(sp)
@@ -652,55 +666,6 @@ midRowLoopEnd:
 	addi	sp, sp, 92
 	ret
 	
-	
-# Get red, green and blue values of a pixel in source image corresponding to pixel and window offset in output image
-# Arguments
-# a0 - sourcePtr
-# a1 - outputRow
-# a2 - outputCol
-# a3 - windowHeight
-# a4 - windowWidth
-# a5 - rowOffset
-# a6 - colOffset
-# a7 - sourceWidth
-# Returns
-# a0 - red
-# a1 - green
-# a2 - blue
-getSrcPixel:
-	addi	sp, sp, -8
-	sw	ra, 4(sp)
-	sw	s0, (sp)
-	
-	mv	s0, a0		# preserve sourcePtr
-	mv	a0, a7
-	call	calculatePadding	# paddingBytesInRow in a0
-
-	mul	t0, a1, a3	# srcRow = outRow * windowHeight + rowOffset
-	add	t0, t0, a5
-	
-	mul	t1, a2, a4	# srcCol = outCol * windowWidth + colOffset
-	add	t1, t1, a6
-	
-	mul	t2, a7, t0	# pixelOffset = srcWidth * srcRow + srcCol
-	add	t2, t2, t1
-	
-	li	t3, 3		# pixelByteOffset = pixelOffset * 3 (24-bit)
-	mul	t2, t2, t3	# TODO use shifts
-	
-	mul	t0, t0, a0	# paddingOffset =  srcRow * paddingBytesInRow
-	add	t2, t2, t0	# pixelByteOffset += paddingOffset
-	 
-	add	t0, s0, t2	# pixelPtr = sourcePtr + pixelByteOffset
-	
-	lbu	a0, (t0)	# red
-	lbu	a1, 1(t0)	# green
-	lbu	a2, 2(t0)	# blue
-	
-	lw	s0, (sp)
-	lw	ra, 4(sp)
-	addi	sp, sp, 8
-	ret	
 	
 # Calculate number of padding bytes per row
 # paddedRowSize = floor((bitsPerPixel * imageWidth + 31) / 32) * 4
