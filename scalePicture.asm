@@ -514,23 +514,24 @@ skip2:	sw	t1, 24(sp)	# push rightWeight
 	#
 	
 	# lower edge 
+	lw	s3, 36(sp)	# downWeight
 	lw	s6, 4(sp)	# innerWidth
 	li	s2, 1		# colOffset
+	lw	s4, 20(sp)	# rowStart
 	beqz	s6, lowerEdgeLoopEnd	# skip if no lower edge
 lowerEdgeLoop:
 	mv	a0, s0
-	lw	a1, 20(sp)	# row start
+	mv	a1, s4
 	lw	a2, 12(sp)	# col start
 	add	a2, a2, s2	# col = colStart + colOffset
 	mv	a3, s7
 	call	getSourcePixel
 	
-	lw	t0, 36(sp)	# weight = downWeight
-	mul	t1, a0, t0
+	mul	t1, a0, s3
 	add	s8, s8, t1
-	mul	t1, a1, t0
+	mul	t1, a1, s3
 	add	s9, s9, t1
-	mul	t1, a2, t0
+	mul	t1, a2, s3
 	add	s10, s10, t1
 	
 	addi	s2, s2, 1
@@ -609,7 +610,7 @@ rightEdgeLoopEnd:
 	
 	#
 	# middle
-	# TODO: optimize
+	#
 	lw	t0, 12(sp)	# colStart
 	addi	s1, t0, 1	# col
 	lw	t1, 4(sp)	# innerWidth
