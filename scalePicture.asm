@@ -355,8 +355,9 @@ calculateOutputPixel:
 	# upWeight, rowEnd
 	# t1 = (row+1) * wh
 	add	t1, t0, s3
-	# t2 = rowEnd = floor( (row+1) * wH ) (integer)
+	# t2 = rowEnd = floor( (row+1) * wH ) - 1 (integer)
 	srli	t2, t1, 8
+	addi	t2, t2, -1	
 	sw	t2, 16(sp)	# push rowEnd
 	# t1 = frac( (row+1)*wh )
 	slli	t1, t1, 24
@@ -382,8 +383,9 @@ skip1:	sw	t1, 32(sp)	# push upWeight
 	#rightWeight, colEnd
 	# t1 = (col+1) * wW
 	add	t1, t0, s4
-	# t2 = colEnd = floor( (col+1) * wW ) (integer)
+	# t2 = colEnd = floor( (col+1) * wW ) -1 (integer)
 	srli	t2, t1, 8
+	addi	t2, t2, -1
 	sw	t2, 8(sp)	# push colEnd
 	# t1 = frac( (col+1) * wW )
 	slli	t1, t1, 24
